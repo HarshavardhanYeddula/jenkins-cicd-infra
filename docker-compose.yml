@@ -1,0 +1,74 @@
+# =====================================================================
+# ISEC6000 Assessment 2 - Containerised Jenkins + Docker-in-Docker (DinD)
+# ---------------------------------------------------------------------
+# Services:
+#   jenkins -> CI controller; runs the pipeline, talks to dind over TCP
+#   dind    -> isolated Docker daemon used for image builds
+# Networks:
+#   ci -> internal bridge; Jenkins reaches dind at "dind:2375"
+# Volumes:
+#   jenkins_home -> persists jobs, plugins, credentials
+#   dind_storage -> persists images/layers between pipeline runs
+# Security:
+#   - Jenkins published on 127.0.0.1 only (never exposed to the LAN)
+#   - Jenkins runs as uid:gid 1000:1000 (non-root)
+#   - DinD requires privileged, but is scoped to that service only
+#     and is NOT published to the host
+# =====================================================================
+
+networks:
+  ci:
+    driver: bridge
+
+volumes:
+  jenkins_home:      # Jenkins state (jobs, config, credentials)
+  dind_storage:      # Docker image layers / build cache
+
+services:
+
+  # -------------------------------------------------------------------
+  # Docker-in-Docker daemon: private Docker engine used by Jenkins.
+  # -------------------------------------------------------------------
+  dind:
+    image: docker:24.0-dind
+    container_name: dind
+    restart: unless-stopped
+    privileged: true                       # required for DinD
+    command: >
+      dockerd
+      --host=tcp://0.0.0.0:2375
+      --host=unix:///var/run/docker.sock
+      --tls=false
+    environment:
+      DOCKER_TLS_CERTDIR: ""               # internal-only, TLS disabled
+    volumes:
+      - dind_storage:/var/lib/docker       # persistent image storage
+    networks:
+      - ci
+    # NOT published to host -> only reachable inside the 'ci' network
+
+  # -------------------------------------------------------------------
+  # Jenkins controller: runs the pipeline-as-code workflow.
+  # -------------------------------------------------------------------
+  jenkins:
+    build:
+      context: ./jenkins                   # custom image (Docker CLI + Trivy)
+    container_name: jenkins
+    restart: unless-stopped
+    user: "1000:1000"                      # run as non-root
+    ports:
+      - "127.0.0.1:8080:8080"              # UI, loopback only
+      - "127.0.0.1:50000:50000"            # agent port, loopback only
+    environment:
+      DOCKER_HOST: "tcp://dind:2375"       # docker CLI -> dind sidecar
+    volumes:
+      - jenkins_home:/var/jenkins_home     # persist Jenkins state
+    networks:
+      - ci
+    depends_on:
+      - dind
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
