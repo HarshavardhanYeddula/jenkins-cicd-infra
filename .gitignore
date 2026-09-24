@@ -1,0 +1,25 @@
+# ---- Secrets -----------------------------------------------------------
+.env
+*.pem
+*.key
+secrets/
+
+# ---- Local Docker volumes ---------------------------------------------
+jenkins_home/
+dind_storage/
+volumes/
+
+# ---- Logs --------------------------------------------------------------
+*.log
+logs/
+
+# ---- OS / editor -------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ---- Node (in case you ever run tooling here) --------------------------
+node_modules/
+npm-debug.log*
